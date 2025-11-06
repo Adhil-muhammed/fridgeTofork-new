@@ -1,6 +1,6 @@
 import { GenerateContentResponse } from "@google/genai";
 
-export type TabName = 'scan' | 'chat' | 'inventory' | 'imageGen' | 'health' | 'recipes';
+export type TabName = 'scan' | 'chat' | 'inventory' | 'imageGen' | 'health' | 'recipes' | 'voicechat';
 
 export interface Ingredient {
   name: string;
@@ -26,6 +26,7 @@ export interface Recipe {
   summary: string;
   healthInsight: string;
   ingredients: string[];
+  instructions: string[];
 }
 
 export interface ChatMessage {

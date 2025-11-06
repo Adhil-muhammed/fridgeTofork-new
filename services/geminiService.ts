@@ -143,7 +143,7 @@ class GeminiService {
       .map((i) => `${i.quantity} ${i.name} (${i.freshness})`)
       .join(', ');
 
-    const prompt = `Based only on these detected ingredients: [${ingredientsList}], and considering the user's known dietary preferences: "${dietaryPreferences || 'none'}", generate three distinct recipe options. For each recipe, provide a brief, engaging summary and immediately flag a key health insight. The response should be a JSON array of recipe objects, each with 'name', 'summary', 'healthInsight', and 'ingredients' (as a string array).`;
+    const prompt = `Based only on these detected ingredients: [${ingredientsList}], and considering the user's known dietary preferences: "${dietaryPreferences || 'none'}", generate three distinct recipe options. For each recipe, provide a brief, engaging summary, immediately flag a key health insight, list the ingredients as a string array, and provide detailed, numbered step-by-step cooking instructions as a string array. The response should be a JSON array of recipe objects, each with 'name', 'summary', 'healthInsight', 'ingredients' (as a string array), and 'instructions' (as a string array).`;
 
     const response: GenerateContentResponse = await ai.models.generateContent({
       model: GEMINI_PRO_MODEL,
@@ -161,8 +161,9 @@ class GeminiService {
               summary: { type: Type.STRING },
               healthInsight: { type: Type.STRING },
               ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+              instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
             },
-            required: ['name', 'summary', 'healthInsight', 'ingredients'],
+            required: ['name', 'summary', 'healthInsight', 'ingredients', 'instructions'],
           },
         },
       },

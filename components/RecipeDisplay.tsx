@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { Recipe } from '../types';
+import { ChatControlContext } from '../App';
 
 interface RecipeDisplayProps {
   recipes: Recipe[];
@@ -9,7 +10,14 @@ interface RecipeDisplayProps {
 
 const RecipeDisplay: React.FC<RecipeDisplayProps> = ({ recipes, onRecipeSelected, selectedRecipe }) => {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
-  const [cookingMode, setCookingMode] = useState<boolean>(false);
+  // Removed cookingMode state, as live chat will handle cooking instructions
+
+  const chatContext = useContext(ChatControlContext);
+  if (!chatContext) {
+    throw new Error("ChatControlContext must be used within a ChatControlProvider");
+  }
+  const { setIsChatOverlayOpen, startLiveSession, isLiveSessionActive, isThinking } = chatContext;
+
 
   const allFilters = ['Quick (<30 Mins)', 'Vegetarian', 'Low Carb', 'High Protein']; // Example filters
 
@@ -31,68 +39,8 @@ const RecipeDisplay: React.FC<RecipeDisplayProps> = ({ recipes, onRecipeSelected
     });
   });
 
-  // --- Cooking Mode View (retains background for readability) ---
-  if (cookingMode && selectedRecipe) {
-    return (
-      <div className="mt-6 p-6 bg-gray-800/60 backdrop-blur-lg rounded-2xl shadow-lg max-w-2xl mx-auto animate-fade-in text-gray-100">
-        <button
-          onClick={() => setCookingMode(false)}
-          className="mb-4 text-cyan-400 hover:text-cyan-600 flex items-center text-lg font-semibold"
-          aria-label="Back to recipe details"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Back to Recipe Details
-        </button>
-        <h2 className="text-4xl font-extrabold text-cyan-400 mb-4">{selectedRecipe.name}</h2>
-        
-        <p className="text-gray-300 text-xl leading-relaxed mb-6">{selectedRecipe.summary}</p>
-
-        <div className="mb-8">
-          <h3 className="text-2xl font-bold text-gray-100 mb-3 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-cyan-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M9.243 3.03a1 1 0 01.782-.07l7 2a1 1 0 01.55 1.63L16.2 10.59a1 1 0 01-.782.07l-7-2a1 1 0 01-.55-1.63L9.243 3.03zM4 11.002v3.668a1 1 0 00.89 1.054l7 2a1 1 0 00.55-1.63l-1.424-2.847L4.99 10.59a1 1 0 00-.55-.16L4 11.002z" clipRule="evenodd" />
-            </svg>
-            Ingredients
-          </h3>
-          <ul className="list-disc list-outside ml-6 text-xl text-gray-200 leading-relaxed space-y-2">
-            {selectedRecipe.ingredients.map((ingredient, i) => (
-              <li key={i}>{ingredient}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div>
-          <h3 className="text-2xl font-bold text-gray-100 mb-3 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-cyan-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4 2a2 2 0 00-2 2v11.586a2 2 0 00.586 1.414L5 20.414V17.5a1 1 0 011-1h6.5a1 1 0 011 1V20l2.414-2.414A2 2 0 0018 15.586V4a2 2 0 00-2-2H4zm.586 10.414a1 1 0 011.414 0L7 13.586l1.293-1.293a1 1 0 011.414 1.414L8.414 15l1.293 1.293a1 1 0 01-1.414 1.414L7 16.414l-1.293 1.293a1 1 0 01-1.414-1.414L5.586 15l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-            Instructions
-          </h3>
-          <ol className="list-decimal list-outside ml-6 text-xl text-gray-200 leading-relaxed space-y-3">
-            {/* Placeholder instructions, replace with actual recipe steps if available */}
-            <li>Preheat oven to 375°F (190°C).</li>
-            <li>Prepare ingredients as listed.</li>
-            <li>Combine all ingredients in a large bowl.</li>
-            <li>Bake for 20-25 minutes, or until golden brown.</li>
-            <li>Serve hot and enjoy!</li>
-          </ol>
-        </div>
-
-        <button
-          onClick={() => { alert(`Enjoy your ${selectedRecipe.name}!`); setCookingMode(false); onRecipeSelected(null); }}
-          className="mt-8 w-full bg-gradient-to-r from-cyan-400 to-emerald-500 text-white font-bold py-4 px-6 rounded-xl hover:from-cyan-500 hover:to-emerald-600 transition duration-200 shadow-lg text-xl"
-          aria-label={`Mark ${selectedRecipe.name} as cooked`}
-        >
-          I'm Cooking This!
-        </button>
-      </div>
-    );
-  }
-
   // --- Recipe Detail Overlay (when a recipe card is selected) ---
-  if (selectedRecipe && !cookingMode) {
+  if (selectedRecipe) { // No longer checks for cookingMode, just selectedRecipe
     return (
       <div className="fixed inset-0 z-50 bg-gray-950/90 backdrop-blur-xl flex flex-col items-center justify-start p-4 animate-fade-in-up">
         <div className="w-full max-w-2xl bg-gray-800/60 backdrop-blur-lg rounded-2xl shadow-2xl p-6 text-gray-100 flex flex-col relative overflow-hidden">
@@ -125,12 +73,47 @@ const RecipeDisplay: React.FC<RecipeDisplayProps> = ({ recipes, onRecipeSelected
             </ul>
           </div>
 
+          <div className="mb-8">
+            <h3 className="text-2xl font-bold text-gray-100 mb-3 flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2 text-cyan-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4 2a2 2 0 00-2 2v11.586a2 2 0 00.586 1.414L5 20.414V17.5a1 1 0 011-1h6.5a1 1 0 011 1V20l2.414-2.414A2 2 0 0018 15.586V4a2 2 0 00-2-2H4zm.586 10.414a1 1 0 011.414 0L7 13.586l1.293-1.293a1 1 0 011.414 1.414L8.414 15l1.293 1.293a1 1 0 01-1.414 1.414L7 16.414l-1.293 1.293a1 1 0 01-1.414-1.414L5.586 15l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+            Instructions
+          </h3>
+          <ol className="list-decimal list-outside ml-6 text-xl text-gray-200 leading-relaxed space-y-3">
+            {selectedRecipe.instructions.length > 0 ? selectedRecipe.instructions.map((step, i) => (
+              <li key={i}>{step}</li>
+            )) : <li>No detailed instructions provided by AI. You can still ask Chef Fridge in the live chat!</li>}
+          </ol>
+        </div>
+
           <button
-            onClick={() => setCookingMode(true)}
-            className="mt-8 w-full bg-gradient-to-r from-cyan-400 to-emerald-500 text-white font-bold py-4 px-6 rounded-xl hover:from-cyan-500 hover:to-emerald-600 transition duration-200 shadow-lg text-xl"
-            aria-label={`Start cooking ${selectedRecipe.name}`}
+            onClick={async () => {
+              if (selectedRecipe) {
+                // Construct initial prompt for live session with recipe details
+                const initialPrompt = `Chef Fridge, I'm ready to cook "${selectedRecipe.name}". The summary is: "${selectedRecipe.summary}". The ingredients I have are: ${selectedRecipe.ingredients.join(', ')}. The instructions are: ${selectedRecipe.instructions.map((instr, idx) => `Step ${idx + 1}: ${instr}`).join(' ')}. Please guide me through the step-by-step voice instructions, starting with step 1. You can remind me of the instructions as we go, or elaborate on cooking techniques.`;
+                
+                setIsChatOverlayOpen(true); // Open the chat interface
+                await startLiveSession(initialPrompt); // Start live session with the prompt
+              }
+            }}
+            className="mt-8 w-full bg-gradient-to-r from-cyan-400 to-emerald-500 text-white font-bold py-4 px-6 rounded-xl hover:from-cyan-500 hover:to-emerald-600 transition duration-200 shadow-lg text-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            aria-label={`Start cooking ${selectedRecipe.name} with voice guidance`}
+            disabled={isThinking || isLiveSessionActive} // Disable if chat is thinking or already active
           >
-            Cook This Recipe!
+            {isThinking || isLiveSessionActive ? (
+              <>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
+                {isLiveSessionActive ? 'Cooking Session Active...' : 'Starting Voice Guide...'}
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7v1m0 0v1m0-1a7 7 0 01-7-7m7 7a7 7 0 007-7m0 0a7 7 0 01-7-7m7 7h1m0 0h1m0-1a7 7 0 01-7-7m7 7v-1m0 0v-1m0 1a7 7 0 00-7 7m0 0a7 7 0 01-7-7m7 7h-1m0 0h-1m0-1a7 7 0 017-7m0 0a7 7 0 00-7 7" />
+                </svg>
+                Cook With Voice Guide!
+              </>
+            )}
           </button>
         </div>
       </div>

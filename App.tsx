@@ -15,7 +15,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 export const ChatControlContext = createContext<{
   isChatOverlayOpen: boolean;
   setIsChatOverlayOpen: (isOpen: boolean) => void;
-  startLiveSession: () => Promise<void>;
+  startLiveSession: (initialPrompt?: string) => Promise<void>; // Modified: Accepts optional initialPrompt
   stopLiveSession: () => void;
   isLiveSessionActive: boolean;
   isThinking: boolean;
@@ -42,7 +42,8 @@ function App() {
   // States passed from ChatInterface for live session status
   const [isLiveSessionActive, setIsLiveSessionActive] = useState<boolean>(false);
   const [isThinking, setIsThinking] = useState<boolean>(false);
-  const [startLiveSession, setStartLiveSession] = useState<() => Promise<void>>(() => async () => {});
+  // Modified: Adjust useState setter to match the new signature of startLiveSession
+  const [startLiveSession, setStartLiveSession] = useState<(_initialPrompt?: string) => Promise<void>>(() => async (_initialPrompt?: string) => {});
   const [stopLiveSession, setStopLiveSession] = useState<() => void>(() => () => {});
 
 
@@ -161,6 +162,7 @@ function App() {
     return () => clearInterval(interval);
   }, [fridgeInventory]);
 
+  const chatViewMode = activeTab === 'voicechat' ? 'tab' : (isChatOverlayOpen ? 'overlay' : 'hidden');
 
   return (
     <div className="relative min-h-screen flex flex-col items-center p-4 pb-20 bg-gradient-to-br from-slate-900 to-indigo-950 antialiased">
@@ -168,75 +170,6 @@ function App() {
         <h1 className="text-4xl font-extrabold text-center text-cyan-400 mb-2 tracking-tight">Fridge to Fork 🥕</h1>
         <p className="text-center text-gray-300 text-lg">Your smart kitchen companion.</p>
       </header>
-
-      <main className="w-full max-w-4xl flex-1 mb-20"> {/* Added mb-20 for bottom nav */}
-        {activeTab === 'scan' && (
-          <section className="animate-fade-in">
-            <ImageUploader
-              onScanAndGenerateRecipes={initiateFullScanProcess} // Pass the combined function
-              onLoadingChange={handleImageUploadLoadingChange}
-              onError={handleImageUploadError}
-              uploadedImageFile={uploadedImageFile}
-              uploadedImagePreviewUrl={uploadedImagePreviewUrl}
-              setUploadedImageFile={setUploadedImageFile}
-              setUploadedImagePreviewUrl={setUploadedImagePreviewUrl}
-              onRemoveImage={handleRemoveImage}
-              analyzedIngredients={fridgeInventory} // Pass current inventory for display if needed
-            />
-            {imageAnalysisError && (
-              <p className="text-rose-400 text-center mt-4 text-sm">{imageAnalysisError}</p>
-            )}
-
-            {(imageAnalysisLoading || recipeGenerationLoading) && !imageAnalysisError && (
-              <div className="mt-8">
-                <LoadingSpinner message={imageAnalysisLoading ? "Analyzing your ingredients with Chef Fridge..." : "Chef Fridge is thinking up delicious recipes with your ingredients..."} />
-              </div>
-            )}
-          </section>
-        )}
-
-        {activeTab === 'recipes' && (
-          <section className="animate-fade-in">
-            {!recipeGenerationLoading && !recipeGenerationError && (
-              <RecipeDisplay
-                recipes={generatedRecipes}
-                onRecipeSelected={setSelectedRecipe}
-                selectedRecipe={selectedRecipe}
-              />
-            )}
-            {/* The "No recipes generated yet..." message will now be handled within RecipeDisplay */}
-            {(recipeGenerationLoading || imageAnalysisLoading) && !recipeGenerationError && (
-              <div className="mt-8">
-                <LoadingSpinner message={imageAnalysisLoading ? "Analyzing your ingredients with Chef Fridge..." : "Chef Fridge is thinking up delicious recipes with your ingredients..."} />
-              </div>
-            )}
-          </section>
-        )}
-
-        {activeTab === 'inventory' && (
-          <section className="animate-fade-in">
-            <FridgeInventory
-              inventory={fridgeInventory}
-              onUpdateInventory={handleUpdateInventory}
-              shoppingList={shoppingList}
-              onUpdateShoppingList={handleUpdateShoppingList}
-              healthLog={healthLog}
-            />
-          </section>
-        )}
-
-        {activeTab === 'imageGen' && (
-          <section className="animate-fade-in">
-            <ImageGenerator />
-          </section>
-        )}
-
-        {activeTab === 'health' && (
-          <section className="animate-fade-in">
-            <HealthProfile healthLog={healthLog} />
-          </section>
-        )}
-      </main>
 
       <ChatControlContext.Provider value={{
         isChatOverlayOpen,
@@ -246,19 +179,91 @@ function App() {
         isLiveSessionActive,
         isThinking,
       }}>
+        <main className="w-full max-w-4xl flex-1 mb-20 flex flex-col"> {/* Added flex flex-col for proper tab layout */}
+          {activeTab === 'scan' && (
+            <section className="animate-fade-in flex-1">
+              <ImageUploader
+                onScanAndGenerateRecipes={initiateFullScanProcess} // Pass the combined function
+                onLoadingChange={handleImageUploadLoadingChange}
+                onError={handleImageUploadError}
+                uploadedImageFile={uploadedImageFile}
+                uploadedImagePreviewUrl={uploadedImagePreviewUrl}
+                setUploadedImageFile={setUploadedImageFile}
+                setUploadedImagePreviewUrl={setUploadedImagePreviewUrl}
+                onRemoveImage={handleRemoveImage}
+                analyzedIngredients={fridgeInventory} // Pass current inventory for display if needed
+              />
+              {imageAnalysisError && (
+                <p className="text-rose-400 text-center mt-4 text-sm">{imageAnalysisError}</p>
+              )}
+
+              {(imageAnalysisLoading || recipeGenerationLoading) && !imageAnalysisError && (
+                <div className="mt-8">
+                  <LoadingSpinner message={imageAnalysisLoading ? "Analyzing your ingredients with Chef Fridge..." : "Chef Fridge is thinking up delicious recipes with your ingredients..."} />
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeTab === 'recipes' && (
+            <section className="animate-fade-in flex-1">
+              {!recipeGenerationLoading && !recipeGenerationError && (
+                <RecipeDisplay
+                  recipes={generatedRecipes}
+                  onRecipeSelected={setSelectedRecipe}
+                  selectedRecipe={selectedRecipe}
+                />
+              )}
+              {/* The "No recipes generated yet..." message will now be handled within RecipeDisplay */}
+              {(recipeGenerationLoading || imageAnalysisLoading) && !recipeGenerationError && (
+                <div className="mt-8">
+                  <LoadingSpinner message={imageAnalysisLoading ? "Analyzing your ingredients with Chef Fridge..." : "Chef Fridge is thinking up delicious recipes with your ingredients..."} />
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeTab === 'inventory' && (
+            <section className="animate-fade-in flex-1">
+              <FridgeInventory
+                inventory={fridgeInventory}
+                onUpdateInventory={handleUpdateInventory}
+                shoppingList={shoppingList}
+                onUpdateShoppingList={handleUpdateShoppingList}
+                healthLog={healthLog}
+              />
+            </section>
+          )}
+
+          {activeTab === 'imageGen' && (
+            <section className="animate-fade-in flex-1">
+              <ImageGenerator />
+            </section>
+          )}
+
+          {activeTab === 'health' && (
+            <section className="animate-fade-in flex-1">
+              <HealthProfile healthLog={healthLog} />
+            </section>
+          )}
+          
+          {/* Render ChatInterface here, controlling its visibility/mode with viewMode */}
+          <ChatInterface
+            viewMode={chatViewMode}
+            onClose={() => {
+              setIsChatOverlayOpen(false);
+              stopLiveSession(); // Ensure live session is stopped when chat overlay closes
+            }}
+            setLiveSessionActive={setIsLiveSessionActive}
+            setThinking={setIsThinking}
+            setStartLiveSession={setStartLiveSession}
+            setStopLiveSession={setStopLiveSession}
+          />
+        </main>
+
         <BottomNavigationBar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          setIsChatOverlayOpen={setIsChatOverlayOpen}
-        />
-        {/* Chat Interface as an Overlay */}
-        <ChatInterface
-          isOpen={isChatOverlayOpen}
-          onClose={() => setIsChatOverlayOpen(false)}
-          setLiveSessionActive={setIsLiveSessionActive}
-          setThinking={setIsThinking}
-          setStartLiveSession={setStartLiveSession}
-          setStopLiveSession={setStopLiveSession}
         />
       </ChatControlContext.Provider>
     </div>
