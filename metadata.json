@@ -1,0 +1,7 @@
+{
+  "name": "Fridge to Fork",
+  "description": "A conversational, multi-modal personal chef, inventory manager, and nutritionist. Analyze food images, generate recipes, manage your fridge, and chat with an AI chef in real-time.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
