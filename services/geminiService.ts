@@ -91,14 +91,14 @@ class GeminiService {
       },
     };
     const textPart = {
-      text: `Analyze the uploaded image. Identify all food items, estimate their quantity, and note any potential spoilage (if visible).
+      text: `Analyze the uploaded image. Identify all distinct food items, estimate their quantity (e.g., '2 large', '1 bag', '500g'), and note their general freshness (e.g., 'fresh', 'good', 'expiring', 'spoiled').
             Provide the output as a JSON array of objects with 'name', 'quantity', and 'freshness' properties.
             Example: [{"name": "apple", "quantity": "2 large", "freshness": "fresh"}, {"name": "milk", "quantity": "1 liter", "freshness": "good"}]
             Also, provide a raw analysis string before the JSON.`,
     };
 
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: GEMINI_FLASH_MODEL, // Changed from GEMINI_FLASH_IMAGE_MODEL
+      model: GEMINI_FLASH_MODEL,
       contents: { parts: [imagePart, textPart] },
       config: {
         responseMimeType: 'application/json',
@@ -125,10 +125,9 @@ class GeminiService {
       return { ingredients, rawAnalysis: `Identified ${ingredients.length} items.` };
     } catch (e) {
       console.error("Failed to parse image analysis response as JSON:", e);
-      // Fallback to simpler analysis if JSON parsing fails
       const fallbackPrompt = `Identify food items and their quantities from the image. List them in a human-readable format.`;
       const fallbackResponse = await ai.models.generateContent({
-        model: GEMINI_FLASH_MODEL, // Changed from GEMINI_FLASH_IMAGE_MODEL
+        model: GEMINI_FLASH_MODEL,
         contents: { parts: [imagePart, { text: fallbackPrompt }] },
       });
       return { ingredients: [], rawAnalysis: fallbackResponse.text };
@@ -285,6 +284,7 @@ class GeminiService {
       model: GEMINI_LIVE_MODEL,
       callbacks: {
         onopen: params.onOpen,
+        // Fix: Changed 'onError' to 'onerror' to match the expected LiveCallbacks type.
         onmessage: params.onMessage,
         onerror: params.onError,
         onclose: params.onClose,

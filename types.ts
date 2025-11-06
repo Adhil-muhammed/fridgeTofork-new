@@ -1,11 +1,24 @@
 import { GenerateContentResponse } from "@google/genai";
 
-export type TabName = 'scan' | 'chat' | 'inventory' | 'imageGen';
+export type TabName = 'scan' | 'chat' | 'inventory' | 'imageGen' | 'health' | 'recipes';
 
 export interface Ingredient {
   name: string;
   quantity: string;
   freshness: string;
+}
+
+export interface ShoppingListItem {
+  id: string;
+  name: string;
+  quantity?: string;
+  checked: boolean;
+}
+
+export interface IngredientCategory {
+  name: string;
+  icon: string; // e.g., '🥦', '🥛', '🥩'
+  items: Ingredient[];
 }
 
 export interface Recipe {

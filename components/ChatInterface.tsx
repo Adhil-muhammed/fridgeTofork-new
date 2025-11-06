@@ -1,12 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import geminiService from '../services/geminiService';
-import { ChatMessage, AudioBufferData } from '../types';
+import { ChatMessage } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import { v4 as uuidv4 } from 'uuid';
-// FIX: Import Session from @google/genai instead of defining a local interface.
 import { FunctionCall, LiveServerMessage, Chat, Session } from '@google/genai';
 
-// FIX: Removed the local interface for LiveSession as the Session type from @google/genai is used directly.
+interface ChatInterfaceProps {
+  isOpen: boolean;
+  onClose: () => void;
+  setLiveSessionActive: (active: boolean) => void;
+  setThinking: (thinking: boolean) => void;
+  // Fix: Update the prop types to correctly reflect that they are `useState` setter functions.
+  // These setters accept `React.SetStateAction<T>`, which can be a direct value `T` or a function `(prevState: T) => T`.
+  // When setting a function value, it's common to use `() => funcValue` to avoid the setter interpreting `funcValue` as a state updater.
+  setStartLiveSession: React.Dispatch<React.SetStateAction<() => Promise<void>>>;
+  setStopLiveSession: React.Dispatch<React.SetStateAction<() => void>>;
+}
 
 // Utility component to display Markdown content
 const MarkdownContent: React.FC<{ content: string }> = ({ content }) => {
@@ -18,7 +27,7 @@ const MarkdownContent: React.FC<{ content: string }> = ({ content }) => {
         // Regex to find URLs and convert them to anchor tags
         const urlRegex = /(https?:\/\/[^\s]+)/g;
         return segment.split(urlRegex).map((part, j) =>
-          urlRegex.test(part) ? <a key={`${i}-${j}`} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">{part}</a> : part
+          urlRegex.test(part) ? <a key={`${i}-${j}`} href={part} target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline hover:text-cyan-200">{part}</a> : part
         );
       }
       return segment;
@@ -27,20 +36,23 @@ const MarkdownContent: React.FC<{ content: string }> = ({ content }) => {
   return <>{formattedContent}</>;
 };
 
-const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
+const ChatInterface: React.FC<ChatInterfaceProps> = ({
+  isOpen,
+  onClose,
+  setLiveSessionActive,
+  setThinking,
+  setStartLiveSession,
+  setStopLiveSession,
+}) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentInput, setCurrentInput] = useState<string>('');
-  const [isLiveSessionActive, setIsLiveSessionActive] = useState<boolean>(false);
-  const [isRecording, setIsRecording] = useState<boolean>(false); // This state is not currently used for microphone recording.
-  const [isThinking, setIsThinking] = useState<boolean>(false);
+  const [isLiveSessionActiveInternal, setIsLiveSessionActiveInternal] = useState<boolean>(false);
+  const [isThinkingInternal, setIsThinkingInternal] = useState<boolean>(false);
   const [liveTranscription, setLiveTranscription] = useState<string>('');
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null); // Not used
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]); // Not used
   const [error, setError] = useState<string | null>(null);
 
   // Live session specific refs
-  // FIX: Use the imported Session interface from @google/genai for the ref.
   const liveSessionRef = useRef<Promise<Session> | null>(null);
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
@@ -50,20 +62,35 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
 
   // Chat specific refs
   const chatRef = useRef<Chat | null>(null);
-
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
+  // Propagate internal states to parent
   useEffect(() => {
-    // Initialize the chat session
+    setLiveSessionActive(isLiveSessionActiveInternal);
+  }, [isLiveSessionActiveInternal, setLiveSessionActive]);
+
+  useEffect(() => {
+    setThinking(isThinkingInternal);
+  }, [isThinkingInternal, setThinking]);
+
+
+  useEffect(() => {
     if (!chatRef.current) {
       chatRef.current = geminiService.createChatSession();
       console.log('Gemini Chat session initialized.');
+      // Add initial greeting message
+      setMessages([{
+        id: uuidv4(),
+        sender: 'gemini',
+        text: "Hello! How can Chef Fridge help you today?",
+        timestamp: new Date(),
+      }]);
     }
 
-    if (chatScrollRef.current) {
+    if (isOpen && chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
-  }, [messages, liveTranscription]);
+  }, [isOpen, messages, liveTranscription]);
 
   const addMessage = useCallback((message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     setMessages((prev) => [...prev, { id: uuidv4(), timestamp: new Date(), ...message }]);
@@ -74,7 +101,7 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
 
     setCurrentInput('');
     addMessage({ sender: 'user', text: messageText });
-    setIsThinking(true);
+    setIsThinkingInternal(true);
     setError(null);
 
     try {
@@ -88,9 +115,8 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
         let fullResponseText = '';
         addMessage({ sender: 'gemini', text: '', isStreaming: true });
 
-        // Stream text response using the chat session
         const responseStream = await chatRef.current.sendMessageStream({
-          message: messageText, // Only send the current user message
+          message: messageText,
         });
 
         for await (const chunk of responseStream) {
@@ -118,7 +144,7 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
         text: `Sorry, I encountered an error: ${err.message || 'Unknown error'}. Please try again.`,
       });
     } finally {
-      setIsThinking(false);
+      setIsThinkingInternal(false);
     }
   }, [addMessage]);
 
@@ -130,10 +156,8 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
     nextOutputAudioStartTimeRef.current = 0;
   }, []);
 
-  // Fix: Move stopLiveSession declaration before startLiveSession
   const stopLiveSession = useCallback(() => {
     stopAllAudioPlayback();
-    // FIX: Access the resolved Session object before calling close()
     liveSessionRef.current?.then(session => session.close());
     liveSessionRef.current = null;
     if (micStream) {
@@ -150,19 +174,17 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
     }
     if (scriptProcessorRef.current) {
       scriptProcessorRef.current.disconnect();
-      scriptProcessorRef.current.onaudioprocess = null; // Prevent memory leak
+      scriptProcessorRef.current.onaudioprocess = null;
       scriptProcessorRef.current = null;
     }
-    setIsLiveSessionActive(false);
-    setIsRecording(false); // Ensure recording state is reset
+    setIsLiveSessionActiveInternal(false);
+    setIsThinkingInternal(false);
     setLiveTranscription('');
-    setIsThinking(false); // Ensure thinking state is reset
     console.log('Live session stopped and resources released.');
   }, [micStream, stopAllAudioPlayback]);
 
 
   const handleLiveSessionMessage = useCallback(async (message: LiveServerMessage) => {
-    // Handle model output audio
     const base64EncodedAudioString = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
     if (base64EncodedAudioString && outputAudioContextRef.current) {
       nextOutputAudioStartTimeRef.current = Math.max(
@@ -187,54 +209,43 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
       outputAudioSourcesRef.current.add(source);
     }
 
-    // Handle transcription for model output
     if (message.serverContent?.outputTranscription) {
       const text = message.serverContent.outputTranscription.text;
       setMessages((prev) => {
         const lastGeminiMessage = prev[prev.length - 1];
         if (lastGeminiMessage && lastGeminiMessage.sender === 'gemini' && lastGeminiMessage.isStreaming) {
-          // Append to the last streaming message
           return prev.map(msg => msg.id === lastGeminiMessage.id ? { ...msg, text: lastGeminiMessage.text + text } : msg);
         } else {
-          // Create a new streaming message
           return [...prev, { id: uuidv4(), sender: 'gemini', text, isStreaming: true, timestamp: new Date() }];
         }
       });
     }
 
-    // Handle transcription for user input
     if (message.serverContent?.inputTranscription) {
       const text = message.serverContent.inputTranscription.text;
       setLiveTranscription(text);
     }
 
-    // Handle turn complete
     if (message.serverContent?.turnComplete) {
       setMessages((prev) =>
         prev.map((msg) =>
           msg.isStreaming ? { ...msg, isStreaming: false } : msg,
         ),
       );
-      setLiveTranscription(''); // Clear user transcription after turn
+      setLiveTranscription('');
     }
 
-    // Handle interruptions
     if (message.serverContent?.interrupted) {
       stopAllAudioPlayback();
     }
 
-    // Handle function calls
     if (message.toolCall && message.toolCall.functionCalls.length > 0) {
-      // Simulate execution of function calls
       const functionCalls: FunctionCall[] = message.toolCall.functionCalls;
       console.log('Function calls received:', functionCalls);
-      // Display function calls in chat
       addMessage({ sender: 'gemini', text: `Executing function: ${functionCalls.map(fc => fc.name).join(', ')}`, functionCalls });
 
-      // Send tool responses back to the model
       liveSessionRef.current?.then(session => {
         for (const fc of functionCalls) {
-          // In a real app, you would execute fc.name with fc.args
           const result = `Successfully controlled light with brightness: ${fc.args.brightness}, colorTemperature: ${fc.args.colorTemperature}`;
           session.sendToolResponse({
             functionResponses: {
@@ -251,15 +262,13 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
 
 
   const startLiveSession = useCallback(async () => {
-    if (isLiveSessionActive) return;
+    if (isLiveSessionActiveInternal) return;
 
     setError(null);
-    setIsThinking(true); // Indicate that the session is connecting
+    setIsThinkingInternal(true);
 
     try {
-      // Fix: Add (window as any).webkitAudioContext for broader compatibility
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      // Fix: Add (window as any).webkitAudioContext for broader compatibility
       outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -268,18 +277,17 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
       liveSessionRef.current = geminiService.connectLiveSession({
         onOpen: () => {
           console.log('Gemini Live session opened');
-          setIsLiveSessionActive(true);
-          setIsThinking(false); // Session is active, stop thinking indicator
-          addMessage({ sender: 'gemini', text: "Hello! How can Chef Fridge help you today?", isStreaming: false });
+          setIsLiveSessionActiveInternal(true);
+          setIsThinkingInternal(false);
+          // Initial greeting from the model is already added in useEffect
+          // addMessage({ sender: 'gemini', text: "Hello! How can Chef Fridge help you today?", isStreaming: false });
 
-          // Start streaming microphone audio
           if (inputAudioContextRef.current) {
             const source = inputAudioContextRef.current.createMediaStreamSource(stream);
             const scriptProcessor = inputAudioContextRef.current.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
               const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
               const pcmBlob = geminiService.createAudioBlob(inputData);
-              // CRITICAL: Solely rely on sessionPromise resolves and then call `session.sendRealtimeInput`, **do not** add other condition checks.
               liveSessionRef.current?.then((session) => {
                 session.sendRealtimeInput({ media: pcmBlob });
               });
@@ -293,17 +301,17 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
         onError: (e) => {
           console.error('Gemini Live session error:', e);
           setError(`Live session error: ${e.message || 'Unknown error'}`);
-          setIsLiveSessionActive(false);
-          setIsThinking(false);
-          stopLiveSession(); // Clean up on error
+          setIsLiveSessionActiveInternal(false);
+          setIsThinkingInternal(false);
+          stopLiveSession();
           addMessage({ sender: 'gemini', text: `Sorry, an error occurred in the live chat: ${e.message || 'Please check your connection and try again.'}` });
         },
         onClose: (e) => {
           console.log('Gemini Live session closed', e);
-          setIsLiveSessionActive(false);
-          setIsThinking(false);
-          stopLiveSession(); // Clean up on close
-          if (e.code !== 1000) { // 1000 is normal closure
+          setIsLiveSessionActiveInternal(false);
+          setIsThinkingInternal(false);
+          stopLiveSession();
+          if (e.code !== 1000) {
             addMessage({ sender: 'gemini', text: `Live chat session disconnected: ${e.reason || 'Please try reconnecting.'}` });
           }
         },
@@ -313,45 +321,77 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
     } catch (err: any) {
       console.error('Failed to start live session:', err);
       setError(`Failed to connect to live session: ${err.message || 'Please ensure microphone access is granted and try again.'}`);
-      setIsThinking(false);
+      setIsThinkingInternal(false);
       stopLiveSession();
     }
-  }, [isLiveSessionActive, handleLiveSessionMessage, addMessage, stopAllAudioPlayback, stopLiveSession]);
+  }, [isLiveSessionActiveInternal, handleLiveSessionMessage, addMessage, stopAllAudioPlayback, stopLiveSession]);
 
 
   useEffect(() => {
-    // Cleanup on component unmount
+    // Fix: The `setStartLiveSession` and `setStopLiveSession` props are `useState` setter functions.
+    // To set a function as the state value, wrap it in an arrow function `() => value` to prevent `useState`
+    // from interpreting the `value` itself as a functional update.
+    setStartLiveSession(() => startLiveSession);
+    setStopLiveSession(() => stopLiveSession);
+  }, [startLiveSession, stopLiveSession, setStartLiveSession, setStopLiveSession]);
+
+
+  useEffect(() => {
     return () => {
       stopLiveSession();
-      // No explicit cleanup for chatRef.current needed, as it's stateless after creation (until a new message)
     };
   }, [stopLiveSession]);
 
-  return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow-md max-w-2xl mx-auto my-6 p-4">
-      <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Chef Fridge Live Chat</h2>
+  if (!isOpen) return null;
 
-      <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-2 border rounded-md bg-gray-50 mb-4 h-[calc(100vh-350px)]">
+  return (
+    <div
+      className={`fixed inset-x-0 bottom-0 h-[85vh] bg-gray-950 rounded-t-3xl shadow-2xl flex flex-col z-50 transform transition-transform duration-300 ease-in-out
+        ${isOpen ? 'translate-y-0' : 'translate-y-full'}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Chef Fridge Live Chat"
+    >
+      <div className="relative p-6 border-b border-gray-700 flex items-center justify-between bg-gray-900">
+        <h2 className="text-3xl font-bold text-gray-100 flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-9 w-9 mr-3 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7v1m0 0v1m0-1a7 7 0 01-7-7m7 7a7 7 0 007-7m0 0a7 7 0 01-7-7m7 7h1m0 0h1m0-1a7 7 0 01-7-7m7 7v-1m0 0v-1m0 1a7 7 0 00-7 7m0 0a7 7 0 01-7-7m7 7h-1m0 0h-1m0-1a7 7 0 017-7m0 0a7 7 0 00-7 7" />
+          </svg>
+          Chef Fridge Live
+        </h2>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition duration-200 text-gray-300"
+          aria-label="Close chat"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-900 mb-4">
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} mb-3`}>
+          <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
             <div
-              className={`max-w-[75%] p-3 rounded-lg shadow-sm text-sm ${
+              className={`max-w-[80%] p-4 rounded-xl shadow-md text-lg leading-relaxed ${
                 msg.sender === 'user'
-                  ? 'bg-green-500 text-white'
-                  : 'bg-gray-200 text-gray-800'
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-gray-700/50 backdrop-blur-sm text-gray-100'
               }`}
+              role="status"
             >
               <MarkdownContent content={msg.text} />
               {msg.isStreaming && msg.sender === 'gemini' && (
-                <span className="animate-pulse text-xs ml-2">...</span>
+                <span className="animate-pulse text-sm ml-2 text-gray-300">...</span>
               )}
               {msg.sources && msg.sources.length > 0 && (
-                <div className="mt-2 text-xs text-gray-600 border-t border-gray-300 pt-2">
+                <div className="mt-3 text-sm text-gray-300 border-t border-gray-600 pt-3">
                   <p className="font-semibold mb-1">Sources:</p>
                   <ul className="list-disc list-inside">
                     {msg.sources.map((source, idx) => (
                       <li key={idx}>
-                        <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">
+                        <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline hover:text-cyan-200">
                           {source.title || source.uri}
                         </a>
                       </li>
@@ -360,7 +400,7 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
                 </div>
               )}
                {msg.functionCalls && msg.functionCalls.length > 0 && (
-                <div className="mt-2 text-xs text-gray-600 border-t border-gray-300 pt-2">
+                <div className="mt-3 text-sm text-gray-300 border-t border-gray-600 pt-3">
                   <p className="font-semibold mb-1">Function Calls:</p>
                   <ul className="list-disc list-inside">
                     {msg.functionCalls.map((fc, idx) => (
@@ -371,78 +411,65 @@ const ChatInterface: React.FC = () => { // Removed initialChatMessages prop
                   </ul>
                 </div>
               )}
-              <div className="text-right text-xs mt-1 opacity-75">
-                {msg.timestamp.toLocaleTimeString()}
+              <div className="text-right text-xs mt-2 opacity-80">
+                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
             </div>
           </div>
         ))}
         {liveTranscription && (
-          <div className="flex justify-end mb-3">
-            <div className="max-w-[75%] p-3 rounded-lg shadow-sm text-sm bg-blue-100 text-blue-800 italic">
-              {liveTranscription} <span className="animate-pulse text-xs ml-1">...</span>
+          <div className="flex justify-end mb-4">
+            <div className="max-w-[80%] p-4 rounded-xl shadow-md text-lg bg-blue-900/50 text-blue-200 italic">
+              {liveTranscription} <span className="animate-pulse text-sm ml-1">...</span>
             </div>
           </div>
         )}
-        {(isThinking && !isLiveSessionActive) && (
-          <div className="flex justify-start mb-3">
-            <div className="max-w-[75%] p-3 rounded-lg shadow-sm text-sm bg-gray-200 text-gray-800 flex items-center">
-              <LoadingSpinner message="Connecting..." />
+        {(isThinkingInternal && !isLiveSessionActiveInternal) && (
+          <div className="flex justify-start mb-4">
+            <div className="max-w-[80%] p-4 rounded-xl shadow-md text-lg bg-gray-700/50 text-gray-100 flex items-center">
+              <LoadingSpinner message="Connecting Chef Fridge..." />
             </div>
           </div>
         )}
       </div>
 
-      {error && <p className="text-red-600 text-center mb-4">{error}</p>}
+      {error && <p className="text-rose-400 text-center mb-4 text-sm">{error}</p>}
 
-      <div className="flex items-center space-x-2 p-2 border-t pt-4">
+      <div className="flex items-center space-x-3 p-4 border-t border-gray-700 bg-gray-900">
         <input
           type="text"
           value={currentInput}
           onChange={(e) => setCurrentInput(e.target.value)}
           onKeyPress={(e) => {
-            if (e.key === 'Enter' && !isThinking && currentInput.trim()) { // Only send if input is not empty
+            if (e.key === 'Enter' && !isThinkingInternal && currentInput.trim() && !isLiveSessionActiveInternal) {
               handleSendMessage(currentInput);
             }
           }}
-          placeholder="Ask Chef Fridge..."
-          className="flex-1 p-3 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
-          disabled={isThinking || isLiveSessionActive}
+          placeholder="Ask Chef Fridge anything..."
+          className="flex-1 p-4 border border-gray-600 rounded-xl focus:ring-cyan-400 focus:border-cyan-400 text-lg bg-gray-800 text-gray-100"
+          disabled={isThinkingInternal || isLiveSessionActiveInternal}
+          aria-label="Chat input"
         />
         <button
           onClick={() => handleSendMessage(currentInput)}
-          className="p-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={!currentInput.trim() || isThinking || isLiveSessionActive}
+          className="p-4 bg-gradient-to-r from-cyan-400 to-emerald-500 text-white rounded-xl hover:from-cyan-500 hover:to-emerald-600 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+          disabled={!currentInput.trim() || isThinkingInternal || isLiveSessionActiveInternal}
+          aria-label="Send message"
         >
-          Send
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
         </button>
         <button
-          onClick={() => handleSendMessage(currentInput, true)} // Send with search grounding
-          className="p-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={!currentInput.trim() || isThinking || isLiveSessionActive}
+          onClick={() => handleSendMessage(currentInput, true)}
+          className="p-4 bg-gradient-to-r from-indigo-500 to-blue-600 text-white rounded-xl hover:from-indigo-600 hover:to-blue-700 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+          disabled={!currentInput.trim() || isThinkingInternal || isLiveSessionActiveInternal}
           title="Send with Google Search Grounding"
+          aria-label="Send message with Google Search Grounding"
         >
-          Search & Ask
-        </button>
-
-        <button
-          onClick={isLiveSessionActive ? stopLiveSession : startLiveSession}
-          className={`p-3 rounded-full text-white transition duration-200
-            ${isLiveSessionActive ? 'bg-red-500 hover:bg-red-600' : 'bg-purple-600 hover:bg-purple-700'}
-            disabled:opacity-50 disabled:cursor-not-allowed`}
-          disabled={isThinking}
-          title={isLiveSessionActive ? 'Stop Live Session' : 'Start Live Session'}
-        >
-          {isLiveSessionActive ? (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-            </svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7v1m0 0v1m0-1a7 7 0 01-7-7m7 7a7 7 0 007-7m0 0a7 7 0 01-7-7m7 7h1m0 0h1m0-1a7 7 0 01-7-7m7 7v-1m0 0v-1m0 1a7 7 0 00-7 7m0 0a7 7 0 01-7-7m7 7h-1m0 0h-1m0-1a7 7 0 017-7m0 0a7 7 0 00-7 7" />
-            </svg>
-          )}
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
         </button>
       </div>
     </div>
